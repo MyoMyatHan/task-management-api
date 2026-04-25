@@ -1,5 +1,6 @@
 using BAL.Services;
 using MODEL.ApplicationConfig;
+using MODEL.DTOs;
 using MODEL.DTOs.TaskDetail;
 using MODEL.DTOs.TaskHeader;
 using MODEL.Entities;
@@ -37,7 +38,7 @@ namespace Tests
         // ──────────────────────────────────────────────
 
         [Fact]
-        public async Task GetAllTasksAsync_ReturnsSuccessful_WithMappedDtos()
+        public async Task GetAllTasksAsync_ReturnsSuccessful_WithPagedResult()
         {
             var tasks = new List<TaskHeader>
             {
@@ -50,13 +51,18 @@ namespace Tests
                     FileAttachments = new List<FileAttachment>()
                 }
             };
-            _taskHeaders.Setup(r => r.GetAllActiveAsync()).ReturnsAsync(tasks);
+            _taskHeaders.Setup(r => r.GetAllActivePagedAsync(1, 10))
+                        .ReturnsAsync((tasks, 1));
 
-            var result = await _service.GetAllTasksAsync();
+            var result = await _service.GetAllTasksAsync(1, 10);
 
             Assert.Equal(APIStatus.Successful, result.Status);
-            var data = Assert.IsAssignableFrom<IEnumerable<TaskHeaderResponseDto>>(result.Data);
-            Assert.Single(data);
+            var paged = Assert.IsType<PagedResultDto<TaskHeaderResponseDto>>(result.Data);
+            Assert.Single(paged.Items);
+            Assert.Equal(1, paged.TotalCount);
+            Assert.Equal(1, paged.Page);
+            Assert.Equal(10, paged.PageSize);
+            Assert.Equal(1, paged.TotalPages);
         }
 
         // ──────────────────────────────────────────────
@@ -371,6 +377,74 @@ namespace Tests
 
             Assert.Equal(APIStatus.Successful, result.Status);
             Assert.False(detail.IsActive);
+        }
+
+        // ──────────────────────────────────────────────
+        // DeleteTasksAsync (bulk)
+        // ──────────────────────────────────────────────
+
+        [Fact]
+        public async Task DeleteTasksAsync_EmptyList_ReturnsError()
+        {
+            var result = await _service.DeleteTasksAsync(new List<Guid>());
+
+            Assert.Equal(APIStatus.Error, result.Status);
+        }
+
+        [Fact]
+        public async Task DeleteTasksAsync_AllNotFound_ReturnsNotFound()
+        {
+            _taskHeaders.Setup(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>()))
+                        .ReturnsAsync((TaskHeader?)null);
+
+            var result = await _service.DeleteTasksAsync(new List<Guid> { Guid.NewGuid(), Guid.NewGuid() });
+
+            Assert.Equal(APIStatus.NotFound, result.Status);
+        }
+
+        [Fact]
+        public async Task DeleteTasksAsync_AllValid_DeletesAllAndReturnsSuccessful()
+        {
+            var id1 = Guid.NewGuid();
+            var id2 = Guid.NewGuid();
+            var task1 = new TaskHeader { TaskId = id1, IsActive = true, TaskDetails = new List<TaskDetail>(), FileAttachments = new List<FileAttachment>() };
+            var task2 = new TaskHeader { TaskId = id2, IsActive = true, TaskDetails = new List<TaskDetail>(), FileAttachments = new List<FileAttachment>() };
+
+            _taskHeaders.Setup(r => r.GetByIdWithDetailsAsync(id1)).ReturnsAsync(task1);
+            _taskHeaders.Setup(r => r.GetByIdWithDetailsAsync(id2)).ReturnsAsync(task2);
+            _taskHeaders.Setup(r => r.GetByGuid(id1)).ReturnsAsync(task1);
+            _taskHeaders.Setup(r => r.GetByGuid(id2)).ReturnsAsync(task2);
+            _taskDetails.Setup(r => r.GetActiveByTaskIdAsync(It.IsAny<Guid>())).ReturnsAsync(new List<TaskDetail>());
+            _fileAttachments.Setup(r => r.GetActiveByTaskIdAsync(It.IsAny<Guid>())).ReturnsAsync(new List<FileAttachment>());
+            _unitOfWork.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
+
+            var result = await _service.DeleteTasksAsync(new List<Guid> { id1, id2 });
+
+            Assert.Equal(APIStatus.Successful, result.Status);
+            Assert.False(task1.IsActive);
+            Assert.False(task2.IsActive);
+            _unitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeleteTasksAsync_PartialFound_DeletesFoundAndReturnsSuccessfulWithNotFoundList()
+        {
+            var validId  = Guid.NewGuid();
+            var invalidId = Guid.NewGuid();
+            var task = new TaskHeader { TaskId = validId, IsActive = true, TaskDetails = new List<TaskDetail>(), FileAttachments = new List<FileAttachment>() };
+
+            _taskHeaders.Setup(r => r.GetByIdWithDetailsAsync(validId)).ReturnsAsync(task);
+            _taskHeaders.Setup(r => r.GetByIdWithDetailsAsync(invalidId)).ReturnsAsync((TaskHeader?)null);
+            _taskHeaders.Setup(r => r.GetByGuid(validId)).ReturnsAsync(task);
+            _taskDetails.Setup(r => r.GetActiveByTaskIdAsync(validId)).ReturnsAsync(new List<TaskDetail>());
+            _fileAttachments.Setup(r => r.GetActiveByTaskIdAsync(validId)).ReturnsAsync(new List<FileAttachment>());
+            _unitOfWork.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
+
+            var result = await _service.DeleteTasksAsync(new List<Guid> { validId, invalidId });
+
+            Assert.Equal(APIStatus.Successful, result.Status);
+            Assert.Contains("1 ID(s) not found", result.Message);
+            Assert.False(task.IsActive);
         }
     }
 }

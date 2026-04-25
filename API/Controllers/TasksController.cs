@@ -21,11 +21,14 @@ namespace API.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
             try
             {
-                var result = await _taskService.GetAllTasksAsync();
+                if (page < 1 || pageSize < 1 || pageSize > 100)
+                    return BadRequest(new ResponseModel { Message = "Page must be >= 1 and PageSize must be between 1 and 100.", Status = APIStatus.Error });
+
+                var result = await _taskService.GetAllTasksAsync(page, pageSize);
                 return ToResponse(result);
             }
             catch (Exception ex)
@@ -99,6 +102,26 @@ namespace API.Controllers
             catch (Exception ex)
             {
                 await _logService.LogErrorAsync($"{ControllerName}.Delete", ex.Message, ex.StackTrace);
+                return StatusCode(500, new ResponseModel { Message = ex.Message, Status = APIStatus.SystemError });
+            }
+        }
+
+        [HttpDelete("bulk")]
+        public async Task<IActionResult> DeleteBulk([FromBody] List<Guid> ids)
+        {
+            try
+            {
+                if (ids == null || ids.Count == 0)
+                    return BadRequest(new ResponseModel { Message = "No task IDs provided.", Status = APIStatus.Error });
+
+                var result = await _taskService.DeleteTasksAsync(ids);
+                if (result.Status == APIStatus.Successful)
+                    await _logService.LogInfoAsync($"{ControllerName}.DeleteBulk", $"Bulk soft-deleted {ids.Count} task(s).");
+                return ToResponse(result);
+            }
+            catch (Exception ex)
+            {
+                await _logService.LogErrorAsync($"{ControllerName}.DeleteBulk", ex.Message, ex.StackTrace);
                 return StatusCode(500, new ResponseModel { Message = ex.Message, Status = APIStatus.SystemError });
             }
         }

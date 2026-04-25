@@ -1,5 +1,6 @@
 using BAL.IServices;
 using MODEL.ApplicationConfig;
+using MODEL.DTOs;
 using MODEL.DTOs.TaskDetail;
 using MODEL.DTOs.TaskHeader;
 using MODEL.DTOs.File;
@@ -17,10 +18,18 @@ namespace BAL.Services
             _unitOfWork = unitOfWork;
         }
 
-        public async Task<ResponseModel> GetAllTasksAsync()
+        public async Task<ResponseModel> GetAllTasksAsync(int page = 1, int pageSize = 10)
         {
-            var tasks = await _unitOfWork.TaskHeaders.GetAllActiveAsync();
-            var result = tasks.Select(MapToHeaderDto).ToList();
+            var (items, totalCount) = await _unitOfWork.TaskHeaders.GetAllActivePagedAsync(page, pageSize);
+
+            var result = new PagedResultDto<TaskHeaderResponseDto>
+            {
+                Items      = items.Select(MapToHeaderDto).ToList(),
+                TotalCount = totalCount,
+                Page       = page,
+                PageSize   = pageSize
+            };
+
             return Success(result);
         }
 
@@ -75,6 +84,38 @@ namespace BAL.Services
             await SoftDeleteTaskWithChildrenAsync(taskId);
             await _unitOfWork.SaveChangesAsync();
             return Success(Messages.DeleteSucess);
+        }
+
+        public async Task<ResponseModel> DeleteTasksAsync(List<Guid> taskIds)
+        {
+            if (taskIds == null || taskIds.Count == 0)
+                return Error("No task IDs provided.");
+
+            var notFound = new List<Guid>();
+
+            foreach (var taskId in taskIds)
+            {
+                var task = await _unitOfWork.TaskHeaders.GetByIdWithDetailsAsync(taskId);
+                if (task == null)
+                    notFound.Add(taskId);
+                else
+                    await SoftDeleteTaskWithChildrenAsync(taskId);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            if (notFound.Count == taskIds.Count)
+                return NotFound("None of the provided task IDs were found.");
+
+            if (notFound.Count > 0)
+                return new ResponseModel
+                {
+                    Status = APIStatus.Successful,
+                    Message = $"Deleted {taskIds.Count - notFound.Count} task(s). {notFound.Count} ID(s) not found.",
+                    Data = new { NotFound = notFound }
+                };
+
+            return Success($"Deleted {taskIds.Count} task(s) successfully.");
         }
 
         public async Task<ResponseModel> AddTaskDetailAsync(Guid taskId, CreateTaskDetailDto dto)
