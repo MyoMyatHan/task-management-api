@@ -37,7 +37,7 @@ Task Management.sln
 
 ## Database Setup
 
-### Option A — Run the schema script (recommended)
+### Option A — Run the schema script
 
 1. Open SQL Server Management Studio (or `sqlcmd`)
 2. Run the script at `database/schema.sql`
@@ -52,7 +52,7 @@ This creates the `TaskManagementDB` database and all tables:
 - `FileAttachments`
 - `SystemLogs`
 
-### Option B — EnsureCreated (automatic on first run)
+### Option B — EnsureCreated
 
 `Program.cs` calls `db.Database.EnsureCreated()` on startup. If the database does not exist, EF will create it from the entity models automatically.
 
@@ -79,7 +79,7 @@ Edit `API/appsettings.json` to match your SQL Server credentials:
 
 ## Running the Application
 
-### Option A — Local (dotnet run)
+### Option A — Local 
 
 Requires .NET 8 SDK and a running SQL Server instance.
 
@@ -94,7 +94,7 @@ The API will be available at:
 
 Swagger UI opens automatically at `/swagger`.
 
-### Option B — Docker (recommended)
+### Option B — Docker
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).  
 No SQL Server installation needed — everything runs in containers.
